@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Palette, Trash2, Settings, Wifi, WifiOff } from 'lucide-react';
+import { Camera, Palette, Trash2, Settings, Wifi, WifiOff, Download } from 'lucide-react';
 
 const GestureDrawing = () => {
   const videoRef = useRef(null);
@@ -276,6 +276,24 @@ const GestureDrawing = () => {
     prevPos.current = { x: null, y: null };
   };
 
+  const saveImage = () => {
+    const canvas = drawingCanvasRef.current;
+    if (!canvas) return;
+
+    // Create a download link
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    link.download = `gesture-drawing-${timestamp}.png`;
+    
+    // Convert canvas to blob and download
+    canvas.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.click();
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  };
+
   const startCamera = () => {
     if (!backendConnected) {
       alert('Backend server not connected. Please start the Flask server first:\n\npython app.py');
@@ -343,6 +361,14 @@ const GestureDrawing = () => {
             >
               <Trash2 size={24} />
               Clear Canvas
+            </button>
+
+            <button
+              onClick={saveImage}
+              className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 rounded-xl font-bold text-white transition-all shadow-lg transform hover:scale-105"
+            >
+              <Download size={24} />
+              Save Image
             </button>
 
             <button
