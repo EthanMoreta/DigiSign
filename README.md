@@ -1,6 +1,6 @@
 # DigiSign
 
-DigiSign ✍️🔒
+## DigiSign ✍️🔒
 
 Reimagining digital trust with camera-based signature verification
 
@@ -14,7 +14,7 @@ Secure – harder to phish or steal than SMS codes or passwords.
 
 Trusted – signatures have been a standard of legal and financial trust for centuries.
 
-🔑 How It Works
+## 🔑 How It Works
 
 User checks out on a demo site.
 
@@ -24,7 +24,7 @@ Our backend processes the signature with OpenCV + a Siamese neural network for v
 
 If the signature matches → transaction approved. Otherwise → rejected.
 
-🛠️ Tech Stack
+## 🛠️ Tech Stack
 
 Frontend: React (checkout flow + webcam capture)
 
@@ -34,7 +34,7 @@ ML: OpenCV preprocessing + signature verification model (Siamese CNN)
 
 Deployment: (optional) Cloudflare Workers or containerized app
 
-🚀 Hackathon Scope
+## 🚀 Hackathon Scope
 
 Build a polished demo checkout flow.
 
@@ -42,6 +42,6 @@ Capture and verify signatures in real time.
 
 Showcase DigiSign as a modern replacement for 2FA to improve trust in digital transactions.
 
-🌍 Vision
+## 🌍 Vision
 
 DigiSign is a first step toward a more trustworthy internet — one where authentication is intuitive, verifiable, and grounded in methods humans already trust.
