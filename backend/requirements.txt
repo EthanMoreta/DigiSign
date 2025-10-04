@@ -1,0 +1,12 @@
+# Flask Backend Dependencies
+flask
+flask-cors
+
+# Computer Vision and ML Dependencies
+opencv-python
+numpy
+pillow
+
+# Additional ML Dependencies (for future signature verification model)
+scipy
+matplotlib
