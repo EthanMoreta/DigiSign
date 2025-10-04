@@ -26,7 +26,7 @@ If the signature matches → transaction approved. Otherwise → rejected.
 
 Frontend: React (checkout flow + webcam capture)
 
-Backend: Flask / Node.js REST API
+Backend: Node.js REST API
 
 ML: OpenCV preprocessing + signature verification model (Siamese CNN)
 
