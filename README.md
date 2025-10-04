@@ -1,6 +1,4 @@
-# DigiSign
-
-## DigiSign ✍️🔒
+# DigiSign ✍️�
 
 Reimagining digital trust with camera-based signature verification
 
