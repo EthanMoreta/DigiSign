@@ -6,11 +6,16 @@ export default function App() {
   const [cartTotal] = useState(49.99);
   const [showModal, setShowModal] = useState(false);
   const [showGestureAuth, setShowGestureAuth] = useState(false);
+  const [showEnrollment, setShowEnrollment] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [backendConnected, setBackendConnected] = useState(false);
-  const [backendUrl] = useState('http://localhost:5000');
+  const [pythonBackendUrl] = useState('http://localhost:5000');
+  const [nodeBackendUrl] = useState('http://localhost:3001');
   const [currentColor] = useState('#0000FF');
   const [brushSize] = useState(5);
+  const [isEnrolled, setIsEnrolled] = useState(false);
+  const [checkingEnrollment, setCheckingEnrollment] = useState(false);
+  const [cardholderName, setCardholderName] = useState('');
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -22,15 +27,15 @@ export default function App() {
   useEffect(() => {
     const checkBackendConnection = async () => {
       try {
-        const response = await fetch(`${backendUrl}/health`);
+        const response = await fetch(`${pythonBackendUrl}/health`);
         const data = await response.json();
         setBackendConnected(data.status === 'healthy');
       } catch {
         setBackendConnected(false);
       }
     };
-    if (showGestureAuth) checkBackendConnection();
-  }, [backendUrl, showGestureAuth]);
+    if (showGestureAuth || showEnrollment) checkBackendConnection();
+  }, [pythonBackendUrl, showGestureAuth, showEnrollment]);
 
   useEffect(() => {
     let stream = null;
@@ -79,7 +84,7 @@ export default function App() {
         tempCtx.drawImage(video, 0, 0);
         const frameData = tempCanvas.toDataURL('image/jpeg', 0.8);
 
-        const response = await fetch(`${backendUrl}/process-frame`, {
+        const response = await fetch(`${pythonBackendUrl}/process-frame`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ frame: frameData }),
@@ -123,7 +128,7 @@ export default function App() {
       if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
       if (stream) stream.getTracks().forEach((t) => t.stop());
     };
-  }, [isRunning, backendConnected, backendUrl, currentColor, brushSize]);
+  }, [isRunning, backendConnected, pythonBackendUrl, currentColor, brushSize]);
 
   const drawHandVisualization = (ctx, landmarks, width, height) => {
     const connections = [
@@ -152,41 +157,133 @@ export default function App() {
     });
   };
 
-  const handlePay = () => setShowModal(true);
-  const handleDigiSign = () => {
-    setShowModal(false);
-    setShowGestureAuth(true);
-    setTimeout(() => backendConnected && setIsRunning(true), 100);
+  const checkEnrollmentStatus = async () => {
+    if (!cardholderName.trim()) {
+      alert('Please enter cardholder name');
+      return false;
+    }
+    
+    setCheckingEnrollment(true);
+    try {
+      const response = await fetch(`${nodeBackendUrl}/check-enrollment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cardholderName.trim() }),
+      });
+      const data = await response.json();
+      setIsEnrolled(data.enrolled);
+      return data.enrolled;
+    } catch {
+      setIsEnrolled(false);
+      return false;
+    } finally {
+      setCheckingEnrollment(false);
+    }
   };
+
+  const handlePay = () => setShowModal(true);
+  
+  const handleDigiSign = async () => {
+    setShowModal(false);
+    const enrolled = await checkEnrollmentStatus();
+    
+    if (enrolled) {
+      setShowGestureAuth(true);
+      setTimeout(() => backendConnected && setIsRunning(true), 100);
+    } else {
+      setShowEnrollment(true);
+      setTimeout(() => backendConnected && setIsRunning(true), 100);
+    }
+  };
+
   const handleOTP = () => { setShowModal(false); alert('OTP verification selected'); };
+  
   const stopCamera = () => {
     setIsRunning(false);
     if (videoRef.current?.srcObject) videoRef.current.srcObject.getTracks().forEach(t => t.stop());
     prevPos.current = { x: null, y: null };
   };
+  
   const clearCanvas = () => {
     const ctx = drawingCanvasRef.current.getContext('2d');
     ctx.clearRect(0, 0, drawingCanvasRef.current.width, drawingCanvasRef.current.height);
     prevPos.current = { x: null, y: null };
   };
-  const saveAndSubmit = () => {
+  
+  const enrollSignature = async () => {
     const canvas = drawingCanvasRef.current;
     if (!canvas) return;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    const filename = `digisign-pattern-${timestamp}.png`;
-    canvas.toBlob((blob) => {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.download = filename;
-      link.href = url;
-      link.click();
-      URL.revokeObjectURL(url);
+
+    const imageData = canvas.toDataURL('image/png');
+    
+    console.log('Attempting to enroll signature...');
+    console.log('Node backend URL:', nodeBackendUrl);
+    console.log('Username:', cardholderName);
+    console.log('Image data length:', imageData.length);
+    
+    try {
+      const response = await fetch(`${nodeBackendUrl}/enroll-signature`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username: cardholderName.trim(),
+          image: imageData 
+        }),
+      });
+      
+      console.log('Response status:', response.status);
+      const data = await response.json();
+      console.log('Response data:', data);
+
+      if (data.enrolled) {
+        stopCamera();
+        setShowEnrollment(false);
+        setIsEnrolled(true);
+        alert('Pattern enrolled successfully! ✅\n\nYou can now use DigiSign for authentication.');
+      } else {
+        alert('Failed to enroll pattern. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error enrolling signature:', err);
+      alert(`Error enrolling pattern: ${err.message}\n\nPlease ensure Node.js backend is running on port 3001.`);
+    }
+  };
+
+  const saveAndSubmit = async () => {
+    const canvas = drawingCanvasRef.current;
+    if (!canvas) return;
+    
+    const imageData = canvas.toDataURL('image/png');
+    
+    try {
+      const response = await fetch(`${nodeBackendUrl}/verify-signature`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username: cardholderName.trim(),
+          image: imageData 
+        }),
+      });
+      const data = await response.json();
+
       stopCamera();
       setShowGestureAuth(false);
-      alert(`Pattern saved as ${filename}\n\nTransaction approved ✅`);
-    });
+
+      if (data.verified) {
+        alert(`Signature verified! ✅\nSimilarity score: ${(data.score * 100).toFixed(1)}%\n\nTransaction approved!`);
+      } else {
+        alert(`Signature verification failed ❌\nSimilarity score: ${(data.score * 100).toFixed(1)}%\n\nPlease try again.`);
+      }
+    } catch (err) {
+      console.error('Error verifying signature:', err);
+      stopCamera();
+      setShowGestureAuth(false);
+      alert('Error verifying signature. Please ensure Node.js backend is running.');
+    }
   };
+  
   const cancelGestureAuth = () => { stopCamera(); setShowGestureAuth(false); };
+  const cancelEnrollment = () => { stopCamera(); setShowEnrollment(false); };
 
   return (
     <div className="container">
@@ -196,7 +293,7 @@ export default function App() {
         <hr />
         <div className="total"><span>Total</span><span>${cartTotal.toFixed(2)}</span></div>
         <h3>Payment Details</h3>
-        <input type="text" placeholder="Cardholder Name" className="input" />
+        <input type="text" placeholder="Cardholder Name" className="input" value={cardholderName} onChange={(e) => setCardholderName(e.target.value)} />
         <input type="text" placeholder="Card Number" className="input" />
         <div className="row">
           <input type="text" placeholder="MM/YY" className="input half" />
@@ -211,9 +308,51 @@ export default function App() {
             <button onClick={() => setShowModal(false)} className="close">✖</button>
             <h3>MFA Verification</h3>
             <p>Please approve this transaction using PayShield MFA.</p>
+            {checkingEnrollment && <p className="checking">Checking DigiSign status...</p>}
             <div className="row">
-              <button onClick={handleDigiSign} className="approve">DigiSign</button>
+              <button onClick={handleDigiSign} className="approve" disabled={checkingEnrollment}>
+                DigiSign
+              </button>
               <button onClick={handleOTP} className="cancel">OTP</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEnrollment && (
+        <div className="modal-overlay">
+          <div className="gesture-modal">
+            <button onClick={cancelEnrollment} className="gesture-close">✖</button>
+            <h3>DigiSign Enrollment</h3>
+            <p className="subtext">Create your signature pattern for future authentications</p>
+            <div className="enrollment-info">
+              ℹ️ This is your first time using DigiSign. Draw a unique pattern that you'll remember and use for all future MFA verifications.
+            </div>
+            {!backendConnected && (
+              <div className="warning">⚠️ Python backend not connected. Start server: <code>python app.py</code></div>
+            )}
+            <div className="gesture-content">
+              <div>
+                <div className="label">Camera Feed</div>
+                <div className="canvas-wrapper">
+                  <video ref={videoRef} style={{ display: 'none' }} width="320" height="240" />
+                  <canvas ref={canvasRef} width="320" height="240" className="canvas" />
+                </div>
+              </div>
+              <div>
+                <div className="label">Your Pattern</div>
+                <div className="canvas-wrapper">
+                  <canvas ref={drawingCanvasRef} width="320" height="240" className="canvas white-bg" />
+                </div>
+              </div>
+            </div>
+            <div className="instructions">
+              <span>☝️ Point finger up to draw</span>
+              <span>✋ Lower finger to stop</span>
+            </div>
+            <div className="gesture-buttons">
+              <button onClick={clearCanvas} className="gesture-btn gray"><RotateCcw size={16}/>Clear</button>
+              <button onClick={enrollSignature} className="gesture-btn green"><Check size={16}/>Enroll Pattern</button>
             </div>
           </div>
         </div>
@@ -226,7 +365,7 @@ export default function App() {
             <h3>DigiSign Authentication</h3>
             <p className="subtext">Draw your signature pattern to verify</p>
             {!backendConnected && (
-              <div className="warning">⚠️ Backend not connected. Start server: <code>python app.py</code></div>
+              <div className="warning">⚠️ Python backend not connected. Start server: <code>python app.py</code></div>
             )}
             <div className="gesture-content">
               <div>

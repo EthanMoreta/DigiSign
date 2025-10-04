@@ -91,6 +91,13 @@
     color: #888;
     cursor: pointer;
   }
+
+  .checking {
+    font-size: 0.85rem;
+    color: #666;
+    font-style: italic;
+    margin: 0.5rem 0;
+  }
   
   .approve {
     flex: 1;
@@ -100,6 +107,11 @@
     border: none;
     border-radius: 6px;
     cursor: pointer;
+  }
+
+  .approve:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
   
   .cancel {
@@ -142,6 +154,17 @@
     margin-bottom: 1rem;
     font-size: 0.85rem;
     border: 1px solid #ffeaa7;
+  }
+
+  .enrollment-info {
+    background: #e7f3ff;
+    color: #004085;
+    padding: 0.75rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    border: 1px solid #b8daff;
+    line-height: 1.5;
   }
   
   .gesture-content {
@@ -217,10 +240,17 @@
   .gesture-btn.blue {
     background: #007bff;
   }
+
+  .gesture-btn.green {
+    background: #28a745;
+  }
+
+  .gesture-btn:hover {
+    opacity: 0.9;
+  }
   
   .subtext {
     font-size: 0.9rem;
     color: #666;
     margin-bottom: 1rem;
   }
-  

@@ -8,9 +8,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cors({
+  origin: 'http://localhost:3000',
+  credentials: true
+}));
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -22,10 +25,48 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Check enrollment status endpoint - checks if baseline signature exists for user
+app.post('/check-enrollment', (req, res) => {
+  try {
+    const { username } = req.body;
+    
+    if (!username || !username.trim()) {
+      return res.status(400).json({
+        enrolled: false,
+        error: 'Username is required'
+      });
+    }
+    
+    const sanitizedUsername = username.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const baselinePath = path.join(__dirname, 'signatures', `${sanitizedUsername}_signature.png`);
+    const enrolled = fs.existsSync(baselinePath);
+    
+    console.log(`Enrollment check for "${username}": ${enrolled ? 'User is enrolled' : 'User not enrolled'}`);
+    
+    res.json({
+      enrolled: enrolled
+    });
+  } catch (error) {
+    console.error('Error checking enrollment:', error);
+    res.status(500).json({
+      enrolled: false,
+      error: 'Failed to check enrollment status'
+    });
+  }
+});
+
 // Verify signature endpoint - compares live signature against baseline
 app.post('/verify-signature', (req, res) => {
   try {
-    const { image } = req.body;
+    const { username, image } = req.body;
+
+    // Validate username
+    if (!username || !username.trim()) {
+      return res.status(400).json({
+        verified: false,
+        error: 'Username is required'
+      });
+    }
 
     // Validate that live signature image data is provided
     if (!image) {
@@ -35,8 +76,10 @@ app.post('/verify-signature', (req, res) => {
       });
     }
 
-    // Check if baseline signature exists
-    const baselinePath = path.join(__dirname, 'baseline_signature.png');
+    // Check if baseline signature exists for this user
+    const sanitizedUsername = username.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const baselinePath = path.join(__dirname, 'signatures', `${sanitizedUsername}_signature.png`);
+    
     if (!fs.existsSync(baselinePath)) {
       return res.status(400).json({
         verified: false,
@@ -65,7 +108,7 @@ app.post('/verify-signature', (req, res) => {
     const threshold = 0.75; // 75% similarity threshold
     const verified = similarityScore >= threshold;
 
-    console.log(`Signature verification: score=${similarityScore}, verified=${verified}`);
+    console.log(`Signature verification for "${username}": score=${similarityScore}, verified=${verified}`);
 
     res.json({
       verified: verified,
@@ -117,44 +160,71 @@ app.post('/verify-otp', (req, res) => {
 
 // Enroll signature endpoint - saves baseline signature image
 app.post('/enroll-signature', (req, res) => {
+  console.log('📥 Received enrollment request');
+  
   try {
-    const { image } = req.body;
+    const { username, image } = req.body;
+
+    // Validate username
+    if (!username || !username.trim()) {
+      console.log('❌ No username provided');
+      return res.status(400).json({
+        enrolled: false,
+        error: 'Username is required'
+      });
+    }
 
     // Validate that image data is provided
     if (!image) {
+      console.log('❌ No image data provided');
       return res.status(400).json({
-        success: false,
+        enrolled: false,
         error: 'No image data provided'
       });
     }
+
+    console.log('👤 Username:', username);
+    console.log('📊 Image data length:', image.length);
 
     // Handle base64 image data
     let imageData;
     if (image.startsWith('data:image/')) {
       // Remove data URL prefix (e.g., "data:image/png;base64,")
       imageData = image.split(',')[1];
+      console.log('🔄 Extracted base64 from data URL');
     } else {
       // Assume it's already base64 encoded
       imageData = image;
+      console.log('✓ Using raw base64 data');
     }
 
     // Convert base64 to buffer
     const buffer = Buffer.from(imageData, 'base64');
+    console.log('📦 Buffer size:', buffer.length, 'bytes');
 
-    // Save to baseline_signature.png in the current directory
-    const filePath = path.join(__dirname, 'baseline_signature.png');
+    // Create signatures directory if it doesn't exist
+    const signaturesDir = path.join(__dirname, 'signatures');
+    if (!fs.existsSync(signaturesDir)) {
+      fs.mkdirSync(signaturesDir);
+      console.log('📁 Created signatures directory');
+    }
+
+    // Sanitize username to create safe filename
+    const sanitizedUsername = username.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filePath = path.join(signaturesDir, `${sanitizedUsername}_signature.png`);
     fs.writeFileSync(filePath, buffer);
 
-    console.log(`Baseline signature saved to: ${filePath}`);
+    console.log(`✅ Baseline signature saved to: ${filePath}`);
+    console.log(`📝 User "${username}" is now enrolled in DigiSign`);
 
     res.json({
       enrolled: true
     });
 
   } catch (error) {
-    console.error('Error saving signature:', error);
+    console.error('❌ Error saving signature:', error);
     res.status(500).json({
-      success: false,
+      enrolled: false,
       error: 'Failed to save signature image'
     });
   }
@@ -163,11 +233,13 @@ app.post('/enroll-signature', (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 DigiSign Node.js Backend is running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
+  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
   console.log(`📋 Available endpoints:`);
+  console.log(`   POST /check-enrollment`);
   console.log(`   POST /verify-signature`);
   console.log(`   POST /verify-otp`);
   console.log(`   POST /enroll-signature`);
+  console.log(`\n💡 Signatures will be saved in: ${path.join(__dirname, 'signatures')}`);
 });
 
 module.exports = app;
