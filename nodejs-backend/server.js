@@ -3,73 +3,112 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
-const { performProfessionalSignatureVerification } = require('./signature-verification');
+const { GoogleGenAI } = require('@google/genai');
+const Stripe = require('stripe');
+
+// Load environment variables
+require('dotenv').config();
+
+// Initialize Stripe
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_YOUR_SECRET_KEY');
+
+// Create signatures directory if it doesn't exist
+const signaturesDir = path.join(__dirname, 'signatures');
+if (!fs.existsSync(signaturesDir)) {
+  fs.mkdirSync(signaturesDir, { recursive: true });
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors({
-  origin: 'http://localhost:3000',
-  credentials: true
-}));
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// --- GEMINI AI SIGNATURE VERIFICATION ---
+async function getGeminiQualitativeScore(baselineBuffer, liveBuffer) {
+  // Ensure the API key is available
+  if (!process.env.GEMINI_API_KEY) {
+    console.error("❌ GEMINI_API_KEY is not set. Returning fallback score.");
+    return 0.3;
+  }
+
+  const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
+
+  // Helper to convert Buffer to Part format
+  function bufferToGenerativePart(buffer, mimeType) {
+    return {
+      inlineData: {
+        data: buffer.toString("base64"),
+        mimeType
+      }
+    };
+  }
+
+  const baselinePart = bufferToGenerativePart(baselineBuffer, "image/png");
+  const livePart = bufferToGenerativePart(liveBuffer, "image/png");
+
+  // Prompt for signature analysis
+  const prompt = `You are a forensic signature analysis expert. Compare these two hand-drawn patterns.
+Pattern 1 (baseline): A reference signature/pattern
+Pattern 2 (live): A signature/pattern to verify
+
+Analyze the visual similarity considering:
+- Overall shape and structure
+- Number of loops, curves, and angles
+- Drawing style and stroke characteristics
+- Spatial relationships between elements
+
+Rate the similarity from 0 to 100, where:
+- 100 = Identical or extremely similar
+- 80-99 = Very similar with minor differences
+- 60-79 = Similar with noticeable differences
+- 40-59 = Somewhat similar but clearly different
+- 20-39 = Barely similar
+- 0-19 = Completely different
+
+Respond with ONLY the numerical score (0-100). No explanation needed.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash-exp",
+      contents: [baselinePart, livePart, prompt]
+    });
+
+    const scoreText = response.text.trim();
+    const score = parseInt(scoreText);
+
+    if (isNaN(score)) {
+      console.error("Gemini did not return a valid number, using fallback score (0.3).");
+      return 0.3;
+    }
+
+    const normalizedScore = Math.max(0, Math.min(1.0, score / 100));
+    console.log(`   - Gemini AI Similarity: ${(normalizedScore * 100).toFixed(1)}%`);
+    return normalizedScore;
+
+  } catch (error) {
+    console.error("❌ Gemini API Error (returning 0.3 fallback):", error.message);
+    return 0.3;
+  }
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    service: 'DigiSign Node.js Backend API',
-    version: '1.0.0',
+    service: 'DigiSign Gemini AI Backend',
+    version: '2.0.0',
     timestamp: new Date().toISOString()
   });
 });
 
-// Check enrollment status endpoint - checks if baseline signature exists for user
-app.post('/check-enrollment', (req, res) => {
-  try {
-    const { username } = req.body;
-    
-    if (!username || !username.trim()) {
-      return res.status(400).json({
-        enrolled: false,
-        error: 'Username is required'
-      });
-    }
-    
-    const sanitizedUsername = username.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-    const baselinePath = path.join(__dirname, 'signatures', `${sanitizedUsername}_signature.png`);
-    const enrolled = fs.existsSync(baselinePath);
-    
-    console.log(`Enrollment check for "${username}": ${enrolled ? 'User is enrolled' : 'User not enrolled'}`);
-    
-    res.json({
-      enrolled: enrolled
-    });
-  } catch (error) {
-    console.error('Error checking enrollment:', error);
-    res.status(500).json({
-      enrolled: false,
-      error: 'Failed to check enrollment status'
-    });
-  }
-});
-
-// Verify signature endpoint - compares live signature against baseline
+// Verify signature endpoint - uses only Gemini AI
 app.post('/verify-signature', async (req, res) => {
   try {
-    const { username, image, trajectory } = req.body;
+    const { image, username } = req.body;
 
-    // Validate username
-    if (!username || !username.trim()) {
-      return res.status(400).json({
-        verified: false,
-        error: 'Username is required'
-      });
-    }
-
-    // Validate that live signature image data is provided
     if (!image) {
       return res.status(400).json({
         verified: false,
@@ -77,252 +116,223 @@ app.post('/verify-signature', async (req, res) => {
       });
     }
 
-    // Check if baseline signature exists for this user
-    const sanitizedUsername = username.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-    const baselinePath = path.join(__dirname, 'signatures', `${sanitizedUsername}_signature.png`);
-    
+    let baselinePath;
+    if (username) {
+      baselinePath = path.join(signaturesDir, `${username}_signature.png`);
+    } else {
+      baselinePath = path.join(__dirname, 'base.png');
+    }
+
     if (!fs.existsSync(baselinePath)) {
-      return res.status(400).json({
+      return res.status(404).json({
         verified: false,
-        error: 'No baseline signature found. Please enroll a signature first.'
+        error: username
+          ? `No signature found for user "${username}". Please enroll a signature first.`
+          : 'Baseline signature not found. Please enroll a signature first.'
       });
     }
 
-    console.log('🔍 Starting signature verification for:', username);
-    console.log('📁 Baseline signature path:', baselinePath);
-    console.log('📊 Live image data length:', image.length);
-    if (trajectory) {
-      console.log('📈 Trajectory data points:', trajectory.length);
-    }
+    console.log('🧠 Starting Gemini AI signature verification...');
 
-    // Use the new signature verification system
-    const verificationResult = await performProfessionalSignatureVerification(
-      baselinePath, 
-      image, 
-      { trajectory }
-    );
+    const baselineBuffer = fs.readFileSync(baselinePath);
+    const base64Data = image.replace(/^data:image\/[a-z]+;base64,/, '');
+    const liveBuffer = Buffer.from(base64Data, 'base64');
 
-    console.log(`✅ Signature verification completed for "${username}"`);
-    console.log(`   - Verified: ${verificationResult.verified}`);
-    console.log(`   - Scores:`, verificationResult.scores);
+    const similarityScore = await getGeminiQualitativeScore(baselineBuffer, liveBuffer);
+    const threshold = parseFloat(process.env.SIGNATURE_THRESHOLD) || 0.6;
+    const isMatch = similarityScore >= threshold;
 
-    // Calculate overall similarity percentage
-    const overallSimilarity = Math.round(verificationResult.scores.combined * 100);
-    const thresholdPercentage = Math.round(verificationResult.thresholds.combined * 100);
+    console.log(`📊 Verification Results:`);
+    console.log(`   - Similarity Score: ${(similarityScore * 100).toFixed(1)}%`);
+    console.log(`   - Threshold: ${(threshold * 100).toFixed(1)}%`);
+    console.log(`   - Result: ${isMatch ? 'MATCH ✅' : 'NO MATCH ❌'}`);
 
     res.json({
-      verified: verificationResult.verified,
-      scores: verificationResult.scores,
-      thresholds: verificationResult.thresholds,
-      similarity: {
-        percentage: overallSimilarity,
-        threshold: thresholdPercentage,
-        message: verificationResult.verified 
-          ? `✅ Signature verified! (${overallSimilarity}% similar)`
-          : `❌ Signature rejected (${overallSimilarity}% similar, need ${thresholdPercentage}%)`,
-        breakdown: {
-          ssim: Math.round(verificationResult.scores.ssim * 100),
-          contour: Math.round(verificationResult.scores.contour * 100),
-          trajectory: Math.round(verificationResult.scores.trajectory * 100)
-        }
+      verified: isMatch,
+      similarity: similarityScore,
+      threshold: threshold,
+      details: {
+        method: 'Gemini AI',
+        confidence: similarityScore
       }
     });
-
   } catch (error) {
-    console.error('❌ Error verifying signature:', error);
+    console.error('❌ Error in signature verification:', error);
     res.status(500).json({
       verified: false,
-      error: 'Failed to verify signature: ' + error.message
+      error: 'Signature verification failed',
+      details: { message: error.message }
     });
   }
 });
 
+// Enroll signature endpoint
+app.post('/enroll-signature', async (req, res) => {
+  try {
+    const { image, username } = req.body;
 
-// Verify OTP endpoint - stub implementation (always returns success)
+    if (!image) {
+      return res.status(400).json({ success: false, error: 'No signature image provided' });
+    }
+
+    if (!username) {
+      return res.status(400).json({ success: false, error: 'Username is required for signature enrollment' });
+    }
+
+    const base64Data = image.replace(/^data:image\/[a-z]+;base64,/, '');
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    const signaturePath = path.join(signaturesDir, `${username}_signature.png`);
+    fs.writeFileSync(signaturePath, imageBuffer);
+
+    console.log(`✅ Signature enrolled successfully for user: ${username}`);
+
+    res.json({
+      success: true,
+      message: 'Signature enrolled successfully',
+      details: {
+        username: username,
+        signaturePath: signaturePath,
+        imageSize: imageBuffer.length
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error enrolling signature:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to enroll signature',
+      details: { message: error.message }
+    });
+  }
+});
+
+// Verify OTP endpoint (stub)
 app.post('/verify-otp', (req, res) => {
   res.json({
     success: true,
-    message: 'OTP verification endpoint is working',
-    timestamp: new Date().toISOString()
+    message: 'OTP verification successful (stub)'
   });
 });
 
-// Enroll signature endpoint - saves baseline signature image and trajectory
-app.post('/enroll-signature', async (req, res) => {
-  console.log('📥 Received enrollment request');
-  
+// --- STRIPE PAYMENT INTEGRATION ---
+function validateCreditCard(cardData) {
+  const errors = [];
+  if (!cardData) {
+    errors.push('Card information is required');
+    return { isValid: false, errors };
+  }
+  return { isValid: true, errors: [] };
+}
+
+async function verifyAuthentication(username, authType, authData) {
   try {
-    const { username, image, trajectory } = req.body;
+    if (authType === 'signature') {
+      const baselinePath = path.join(signaturesDir, `${username}_signature.png`);
+      if (!fs.existsSync(baselinePath)) return false;
 
-    // Validate username
-    if (!username || !username.trim()) {
-      console.log('❌ No username provided');
-      return res.status(400).json({
-        enrolled: false,
-        error: 'Username is required'
+      const baselineBuffer = fs.readFileSync(baselinePath);
+      const base64Data = authData.image.replace(/^data:image\/[a-z]+;base64,/, '');
+      const liveBuffer = Buffer.from(base64Data, 'base64');
+
+      const similarityScore = await getGeminiQualitativeScore(baselineBuffer, liveBuffer);
+      const threshold = parseFloat(process.env.SIGNATURE_THRESHOLD) || 0.6;
+      return similarityScore >= threshold;
+    } else if (authType === 'otp') {
+      return authData.otpCode === '123456';
+    }
+    return false;
+  } catch (error) {
+    console.error('Authentication verification failed:', error);
+    return false;
+  }
+}
+
+app.post('/create-payment-intent', async (req, res) => {
+  try {
+    const { amount, username, authType, authData, paymentMethodId, cardData } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+
+    if (cardData) {
+      const cardValidation = validateCreditCard(cardData);
+      if (!cardValidation.isValid) {
+        return res.status(400).json({
+          error: 'Invalid card data',
+          details: cardValidation.errors
+        });
+      }
+    }
+
+    const isAuthenticated = await verifyAuthentication(username, authType, authData);
+    if (!isAuthenticated) {
+      return res.status(401).json({
+        error: 'Authentication failed. Please verify your identity first.',
+        requiresAuth: true
       });
     }
 
-    // Validate that image data is provided
-    if (!image) {
-      console.log('❌ No image data provided');
-      return res.status(400).json({
-        enrolled: false,
-        error: 'No image data provided'
-      });
+    console.log(`💳 Creating payment intent for user: ${username}, amount: $${amount}`);
+
+    const paymentIntentData = {
+      amount: Math.round(amount * 100),
+      currency: 'usd',
+      metadata: { username, authType, validated: true },
+      automatic_payment_methods: { enabled: true, allow_redirects: 'never' }
+    };
+
+    if (paymentMethodId) {
+      paymentIntentData.payment_method = paymentMethodId;
     }
 
-    console.log('👤 Username:', username);
-    console.log('📊 Image data length:', image.length);
-    if (trajectory) {
-      console.log('📈 Trajectory data points:', trajectory.length);
-    }
-
-    // Handle base64 image data
-    let imageData;
-    if (image.startsWith('data:image/')) {
-      // Remove data URL prefix (e.g., "data:image/png;base64,")
-      imageData = image.split(',')[1];
-      console.log('🔄 Extracted base64 from data URL');
-    } else {
-      // Assume it's already base64 encoded
-      imageData = image;
-      console.log('✓ Using raw base64 data');
-    }
-
-    // Convert base64 to buffer
-    const buffer = Buffer.from(imageData, 'base64');
-    console.log('📦 Buffer size:', buffer.length, 'bytes');
-
-    // Create signatures directory if it doesn't exist
-    const signaturesDir = path.join(__dirname, 'signatures');
-    if (!fs.existsSync(signaturesDir)) {
-      fs.mkdirSync(signaturesDir);
-      console.log('📁 Created signatures directory');
-    }
-
-    // Sanitize username to create safe filename
-    const sanitizedUsername = username.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filePath = path.join(signaturesDir, `${sanitizedUsername}_signature.png`);
-    fs.writeFileSync(filePath, buffer);
-
-    console.log(`✅ Baseline signature saved to: ${filePath}`);
-
-    // Save trajectory data if provided
-    if (trajectory && trajectory.length > 0) {
-      // Save trajectory data to file
-      const trajectoryPath = path.join(__dirname, 'signatures', `${sanitizedUsername}_trajectory.json`);
-      fs.writeFileSync(trajectoryPath, JSON.stringify(trajectory, null, 2));
-      console.log(`📈 Trajectory data saved for user: ${username}`);
-    }
-
-    console.log(`📝 User "${username}" is now enrolled in DigiSign`);
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentData);
 
     res.json({
-      enrolled: true
+      clientSecret: paymentIntent.client_secret,
+      authenticated: true,
+      message: 'Payment authorized by DigiSign authentication',
+      paymentIntentId: paymentIntent.id
     });
-
-  } catch (error) {
-    console.error('❌ Error saving signature:', error);
-    res.status(500).json({
-      enrolled: false,
-      error: 'Failed to save signature image'
-    });
+  } catch (err) {
+    console.error('Payment intent creation failed:', err);
+    res.status(400).json({ error: err.message });
   }
 });
 
-// Colors endpoint - returns available colors for gesture drawing
-app.get('/colors', (req, res) => {
-  const colors = [
-    { name: 'blue', hex: '#0000FF' },
-    { name: 'green', hex: '#00FF00' },
-    { name: 'red', hex: '#FF0000' },
-    { name: 'yellow', hex: '#FFFF00' },
-    { name: 'purple', hex: '#FF00FF' },
-    { name: 'orange', hex: '#FFA500' },
-    { name: 'cyan', hex: '#00FFFF' },
-    { name: 'magenta', hex: '#FF00FF' }
-  ];
-  
-  res.json({ colors });
-});
-
-// Update settings endpoint - for MediaPipe detection settings
-app.post('/update-settings', (req, res) => {
+app.post('/verify-payment', async (req, res) => {
   try {
-    const { min_detection_confidence, min_tracking_confidence } = req.body;
-    
-    // Store settings in memory (in production, use a database)
-    global.mediapipeSettings = {
-      min_detection_confidence: min_detection_confidence || 0.7,
-      min_tracking_confidence: min_tracking_confidence || 0.7
-    };
-    
-    console.log('⚙️ MediaPipe settings updated:', global.mediapipeSettings);
-    
+    const { paymentIntentId } = req.body;
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
     res.json({
-      success: true,
-      settings: global.mediapipeSettings
+      status: paymentIntent.status,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      metadata: paymentIntent.metadata
     });
-  } catch (error) {
-    console.error('❌ Error updating settings:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update settings'
-    });
-  }
-});
-
-// Process frame endpoint - handles MediaPipe hand detection
-app.post('/process-frame', (req, res) => {
-  try {
-    const { frame } = req.body;
-    
-    if (!frame) {
-      return res.status(400).json({
-        success: false,
-        error: 'No frame data provided'
-      });
-    }
-    
-    // For now, return mock data since we don't have MediaPipe in Node.js
-    // In a real implementation, you'd process the frame with MediaPipe
-    const mockResponse = {
-      success: true,
-      hand_detected: Math.random() > 0.3, // Randomly detect hands 70% of the time
-      landmarks: [
-        { x: 0.5, y: 0.5, z: 0 },
-        { x: 0.6, y: 0.4, z: 0 },
-        { x: 0.7, y: 0.3, z: 0 },
-        { x: 0.8, y: 0.2, z: 0 },
-        { x: 0.9, y: 0.1, z: 0 }
-      ],
-      index_finger_pos: { x: 0.7, y: 0.3 },
-      drawing_active: Math.random() > 0.5,
-      gesture: Math.random() > 0.8 ? 'color_change' : null
-    };
-    
-    res.json(mockResponse);
-    
-  } catch (error) {
-    console.error('❌ Error processing frame:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to process frame'
-    });
+  } catch (err) {
+    console.error('Payment verification failed:', err);
+    res.status(400).json({ error: err.message });
   }
 });
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 DigiSign Node.js Backend is running on port ${PORT}`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+  console.log(`🚀 DigiSign Backend with Stripe Integration running on port ${PORT}`);
+  console.log(`📍 Health check: http://localhost:${PORT}/health`);
   console.log(`📋 Available endpoints:`);
-  console.log(`   POST /check-enrollment`);
-  console.log(`   POST /verify-signature`);
-  console.log(`   POST /verify-otp`);
+  console.log(`   POST /verify-signature (Gemini AI only)`);
   console.log(`   POST /enroll-signature`);
-  console.log(`\n💡 Signatures will be saved in: ${path.join(__dirname, 'signatures')}`);
+  console.log(`   POST /verify-otp`);
+  console.log(`   POST /create-payment-intent (Stripe)`);
+  console.log(`   POST /verify-payment (Stripe)`);
+  console.log(`\n🧠 Using Gemini AI for signature verification`);
+  console.log(`💳 Using Stripe for payment processing`);
+  console.log(`🔐 Gemini API Key: ${process.env.GEMINI_API_KEY ? '✅ Set' : '❌ Not set'}`);
+  console.log(`🔐 Stripe Secret Key: ${process.env.STRIPE_SECRET_KEY ? '✅ Set' : '❌ Not set'}`);
 });
 
-module.exports = app;
+module.exports = { app };

@@ -7,6 +7,7 @@
     "@mediapipe/hands": "^0.4.1675469240",
     "@stripe/react-stripe-js": "^5.0.0",
     "@stripe/stripe-js": "^8.0.0",
+    "digisign-plugin": "^1.0.4",
     "lucide-react": "^0.544.0",
     "react": "^18.1.0",
     "react-dom": "^18.1.0"

@@ -456,7 +456,7 @@ export default function DigiSignPlugin({
   return (
     <div className="digisign-overlay">
       <div className="digisign-modal">
-        <button onClick={handleCancel} className="digisign-close">✖</button>
+        <button onClick={handleCancel} className="digisign-close">âœ–</button>
         <h3>DigiSign {currentMode === 'enroll' ? 'Enrollment' : 'Authentication'}</h3>
         <p className="digisign-subtext">
           {currentMode === 'enroll' 
@@ -466,20 +466,20 @@ export default function DigiSignPlugin({
         
         {currentMode === 'enroll' && (
           <div className="digisign-info">
-            ℹ️ This is your first time using DigiSign. Draw a unique pattern that you'll remember and use for all future MFA verifications.
+            â„¹ï¸ This is your first time using DigiSign. Draw a unique pattern that you'll remember and use for all future MFA verifications.
           </div>
         )}
         
         {mediapipeError && (
-          <div className="digisign-warning">⚠️ {mediapipeError}</div>
+          <div className="digisign-warning">âš ï¸ {mediapipeError}</div>
         )}
         
         {!mediapipeLoaded && !mediapipeError && (
-          <div className="digisign-warning">⏳ Loading MediaPipe hand tracking...</div>
+          <div className="digisign-warning">â³ Loading MediaPipe hand tracking...</div>
         )}
         
         {isChecking && (
-          <div className="digisign-warning">🔍 Checking enrollment status...</div>
+          <div className="digisign-warning">ðŸ” Checking enrollment status...</div>
         )}
         
         <div className="digisign-content">
@@ -499,8 +499,8 @@ export default function DigiSignPlugin({
         </div>
         
         <div className="digisign-instructions">
-          <span>☝️ Point finger up to draw</span>
-          <span>✋ Lower finger to stop</span>
+          <span>â˜ï¸ Point finger up to draw</span>
+          <span>âœ‹ Lower finger to stop</span>
         </div>
         
         <div className="digisign-buttons">
