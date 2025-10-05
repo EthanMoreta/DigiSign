@@ -7,13 +7,25 @@
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
-  "keywords": ["digisign", "signature", "otp", "verification", "api"],
+  "keywords": [
+    "digisign",
+    "signature",
+    "otp",
+    "verification",
+    "api"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
+    "@google/genai": "^1.22.0",
+    "body-parser": "^1.20.2",
     "cors": "^2.8.5",
-    "body-parser": "^1.20.2"
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "image-hash": "^6.0.1",
+    "jimp": "^1.6.0",
+    "sharp": "^0.34.4",
+    "stripe": "^14.21.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
