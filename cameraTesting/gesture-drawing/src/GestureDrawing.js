@@ -13,7 +13,7 @@ const GestureDrawing = () => {
   const [detectionConfidence, setDetectionConfidence] = useState(0.7);
   const [trackingConfidence, setTrackingConfidence] = useState(0.7);
   const [backendConnected, setBackendConnected] = useState(false);
-  const [backendUrl, setBackendUrl] = useState('http://localhost:5000');
+  const [backendUrl, setBackendUrl] = useState('http://localhost:3001');
   const [availableColors, setAvailableColors] = useState([]);
   const [colorIndex, setColorIndex] = useState(0);
 
@@ -296,7 +296,7 @@ const GestureDrawing = () => {
 
   const startCamera = () => {
     if (!backendConnected) {
-      alert('Backend server not connected. Please start the Flask server first:\n\npython app.py');
+      alert('Backend server not connected. Please start the Node.js server first:\n\nnpm start');
       return;
     }
     setIsRunning(true);
@@ -323,7 +323,7 @@ const GestureDrawing = () => {
             🎨 Gesture Drawing Studio
           </h1>
           <p className="text-xl text-purple-100 mb-4">
-            Python-powered hand tracking with MediaPipe & Flask
+            Node.js-powered hand tracking with MediaPipe simulation
           </p>
           <div className="mt-4 flex items-center justify-center gap-2">
             {backendConnected ? (
@@ -334,7 +334,7 @@ const GestureDrawing = () => {
             ) : (
               <div className="flex items-center gap-2 bg-red-500 text-white px-6 py-3 rounded-full shadow-lg">
                 <WifiOff size={20} />
-                <span className="font-semibold">Start Flask server: python app.py</span>
+                <span className="font-semibold">Start Node.js server: npm start</span>
               </div>
             )}
           </div>
@@ -437,7 +437,7 @@ const GestureDrawing = () => {
                   value={backendUrl}
                   onChange={(e) => setBackendUrl(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl bg-white/10 text-white border border-white/30 focus:outline-none focus:border-white/60"
-                  placeholder="http://localhost:5000"
+                  placeholder="http://localhost:3001"
                 />
                 <button
                   onClick={checkBackendConnection}

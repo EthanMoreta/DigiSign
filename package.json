@@ -1,4 +1,13 @@
 {
+  "name": "digisign",
+  "version": "1.0.0",
+  "description": "DigiSign - Digital signature verification with camera-based authentication",
+  "scripts": {
+    "build": "cd ReactWebsiteSample && npm install && npm run build",
+    "build:gesture": "cd cameraTesting/gesture-drawing && npm install && npm run build",
+    "start": "cd ReactWebsiteSample && npm start",
+    "start:gesture": "cd cameraTesting/gesture-drawing && npm start"
+  },
   "dependencies": {
     "node-fetch": "^3.3.2"
   }
