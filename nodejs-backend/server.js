@@ -166,6 +166,35 @@ app.post('/verify-signature', async (req, res) => {
   }
 });
 
+// Check enrollment status endpoint
+app.post('/check-enrollment', (req, res) => {
+  try {
+    const { username } = req.body;
+    
+    if (!username || !username.trim()) {
+      return res.status(400).json({
+        enrolled: false,
+        error: 'Username is required'
+      });
+    }
+    
+    const signaturePath = path.join(signaturesDir, `${username}_signature.png`);
+    const enrolled = fs.existsSync(signaturePath);
+    
+    console.log(`Enrollment check for "${username}": ${enrolled ? 'User is enrolled' : 'User not enrolled'}`);
+    
+    res.json({
+      enrolled: enrolled
+    });
+  } catch (error) {
+    console.error('Error checking enrollment:', error);
+    res.status(500).json({
+      enrolled: false,
+      error: 'Failed to check enrollment status'
+    });
+  }
+});
+
 // Enroll signature endpoint
 app.post('/enroll-signature', async (req, res) => {
   try {
@@ -229,6 +258,12 @@ async function verifyAuthentication(username, authType, authData) {
       const baselinePath = path.join(signaturesDir, `${username}_signature.png`);
       if (!fs.existsSync(baselinePath)) return false;
 
+      // Check if image data is provided
+      if (!authData || !authData.image) {
+        console.error('No image data provided for signature verification');
+        return false;
+      }
+
       const baselineBuffer = fs.readFileSync(baselinePath);
       const base64Data = authData.image.replace(/^data:image\/[a-z]+;base64,/, '');
       const liveBuffer = Buffer.from(base64Data, 'base64');
@@ -237,7 +272,7 @@ async function verifyAuthentication(username, authType, authData) {
       const threshold = parseFloat(process.env.SIGNATURE_THRESHOLD) || 0.6;
       return similarityScore >= threshold;
     } else if (authType === 'otp') {
-      return authData.otpCode === '123456';
+      return authData && authData.otpCode === '123456';
     }
     return false;
   } catch (error) {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import DigiSignPlugin from 'digisign-plugin';
+import DigiSignPlugin from './DigiSignPlugin';
 
 const stripePromise = loadStripe('pk_test_51SETfKIRVYdDpHLckHnhJFxFwAIRKDIILO2kGagQVpcOl9Qqek8vOzzrxP5T7lQHQKtzCBR2CEODgbmuojn2iWfd00WTThrzhQ');
 
@@ -196,13 +196,13 @@ export default function App() {
     setShowDigiSign(true);
   };
 
-  const handleDigiSignVerified = ({ verified, score }) => {
+  const handleDigiSignVerified = ({ verified, score, image }) => {
     setShowDigiSign(false);
     
     if (verified) {
       setIsAuthenticated(true);
       setAuthType('signature');
-      setAuthData({ score });
+      setAuthData({ image: image, score: score });
       alert(`Signature verified! ✓\nSimilarity score: ${(score * 100).toFixed(1)}%\n\nYou can now proceed with payment.`);
     } else {
       const useOTP = confirm(`Signature verification failed ✗\nSimilarity score: ${(score * 100).toFixed(1)}%\n\nWould you like to use OTP verification instead?`);
