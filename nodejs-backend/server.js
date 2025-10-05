@@ -3,13 +3,10 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
-const SignatureVerification = require('./signature-verification');
+const { performProfessionalSignatureVerification } = require('./signature-verification');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-
-// Initialize signature verification system
-const signatureVerifier = new SignatureVerification();
 
 // Middleware
 app.use(cors({
@@ -99,10 +96,10 @@ app.post('/verify-signature', async (req, res) => {
     }
 
     // Use the new signature verification system
-    const verificationResult = await signatureVerifier.verifySignature(
+    const verificationResult = await performProfessionalSignatureVerification(
       baselinePath, 
       image, 
-      trajectory
+      { trajectory }
     );
 
     console.log(`✅ Signature verification completed for "${username}"`);
@@ -213,7 +210,9 @@ app.post('/enroll-signature', async (req, res) => {
 
     // Save trajectory data if provided
     if (trajectory && trajectory.length > 0) {
-      await signatureVerifier.saveTrajectory(username, trajectory);
+      // Save trajectory data to file
+      const trajectoryPath = path.join(__dirname, 'signatures', `${sanitizedUsername}_trajectory.json`);
+      fs.writeFileSync(trajectoryPath, JSON.stringify(trajectory, null, 2));
       console.log(`📈 Trajectory data saved for user: ${username}`);
     }
 
