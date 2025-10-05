@@ -1,0 +1,38 @@
+{
+  "name": "digisign-plugin",
+  "version": "1.0.4",
+  "description": "Hand gesture authentication for React apps",
+  "main": "dist/DigiSignPlugin.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "babel src --out-dir dist --copy-files",
+    "prepare": "npm run build"
+  },
+  "babel": {
+    "presets": [
+      "@babel/preset-env",
+      "@babel/preset-react"
+    ]
+  },
+  "keywords": [
+    "react",
+    "mfa",
+    "authentication",
+    "gesture"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": "^16.8.0 || ^17.0.0 || ^18.0.0",
+    "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0",
+    "lucide-react": ">=0.263.1"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.23.0",
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0",
+    "@babel/preset-react": "^7.23.0"
+  }
+}
